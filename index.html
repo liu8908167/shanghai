@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>江南六天行 - 雲端編輯 V11</title>
+    <title>江南六天行 - 雲端編輯 V12</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; display: flex; height: 100vh; font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; overflow: hidden; }
@@ -19,23 +19,23 @@
         button { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-bottom: 5px; }
         button:hover { background: #1557b0; }
         
-        /* 景點卡片樣式 */
         .marker-card { position: relative; background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 5px solid #1a73e8; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .name-edit { font-weight: bold; font-size: 1.1em; border: none; border-bottom: 1px dashed #ccc; padding: 4px; width: 80%; }
-        .delete-icon { color: #dc3545; cursor: pointer; font-size: 1.2em; padding: 5px; }
-
-        /* 側邊欄照片預覽區 */
+        .card-title { font-weight: bold; font-size: 1.1em; color: #333; }
+        .icon-group { display: flex; gap: 8px; }
+        .action-icon { cursor: pointer; font-size: 1.1em; padding: 5px; border-radius: 4px; transition: 0.2s; }
+        .edit-icon { color: #1a73e8; background: #e8f0fe; }
+        .delete-icon { color: #dc3545; background: #fbe9e7; }
+        
         .sidebar-photo-container { position: relative; margin-top: 10px; border-radius: 6px; overflow: hidden; border: 1px solid #eee; }
         .sidebar-photo { width: 100%; display: block; object-fit: cover; max-height: 200px; }
         .photo-del-btn { position: absolute; top: 5px; right: 5px; background: rgba(220, 53, 69, 0.9); color: white; border: none; border-radius: 4px; padding: 4px 8px; font-size: 12px; cursor: pointer; }
 
-        /* 地圖數字圖釘 */
         .custom-pin { background-color: #1a73e8; color: white; border-radius: 50%; width: 28px; height: 28px; text-align: center; line-height: 28px; font-weight: bold; font-size: 14px; border: 2px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.4); }
+        .photo-marker { border: 3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 4px; background: #fff; position: relative; }
 
-        /* 彈窗樣式 */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; }
-        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
 
         @media (max-width: 768px) {
             body { flex-direction: column-reverse; }
@@ -69,10 +69,11 @@
 
 <div id="add-modal" class="modal-overlay">
     <div class="modal-content">
-        <h3 style="margin-top:0; color:#1a73e8;">📍 新增景點資訊</h3>
+        <h3 id="modal-title" style="margin-top:0; color:#1a73e8;">📍 新增景點資訊</h3>
+        <input type="hidden" id="modal-editing-id">
         
         <label>景點名稱</label>
-        <input type="text" id="modal-name" placeholder="例如：外灘、武康路...">
+        <input type="text" id="modal-name">
 
         <label>交通方式</label>
         <select id="modal-transport">
@@ -81,18 +82,18 @@
             <option value="taxi">🚕 打車</option>
         </select>
 
-        <label>座標 (點擊地圖可自動填入)</label>
+        <label>座標</label>
         <div style="display:flex; gap:10px;">
-            <input type="number" id="modal-lat" placeholder="緯度" step="0.000001">
-            <input type="number" id="modal-lng" placeholder="經度" step="0.000001">
+            <input type="number" id="modal-lat" step="0.000001">
+            <input type="number" id="modal-lng" step="0.000001">
         </div>
 
         <label>行程備註</label>
-        <textarea id="modal-notes" placeholder="必吃美食或預約提醒..."></textarea>
+        <textarea id="modal-notes"></textarea>
 
         <div style="display:flex; gap:10px; margin-top:10px;">
             <button style="background:#6c757d" onclick="closeAddModal()">取消</button>
-            <button onclick="confirmAddMarker()">確定新增</button>
+            <button id="modal-confirm-btn" onclick="confirmMarkerAction()">確定</button>
         </div>
     </div>
 </div>
@@ -128,7 +129,6 @@
     let photoLayer = L.layerGroup().addTo(map);
 
     function loadDayData() {
-        tripRef.off();
         tripRef.child(currentDay).on('value', (snapshot) => {
             const data = snapshot.val();
             localState = data ? Object.values(data).sort((a, b) => a.id - b.id) : [];
@@ -139,37 +139,59 @@
     document.getElementById('day-select').addEventListener('change', (e) => { currentDay = e.target.value; loadDayData(); });
     loadDayData();
 
-    map.on('click', (e) => {
-        openAddModal(e.latlng.lat.toFixed(6), e.latlng.lng.toFixed(6));
-    });
+    map.on('click', (e) => { openAddModal(null, e.latlng.lat, e.latlng.lng); });
 
-    function openAddModal(lat = '', lng = '') {
-        document.getElementById('modal-name').value = '';
-        document.getElementById('modal-notes').value = '';
-        document.getElementById('modal-lat').value = lat;
-        document.getElementById('modal-lng').value = lng;
+    function openAddModal(point = null, lat = '', lng = '') {
+        const title = document.getElementById('modal-title');
+        const idInput = document.getElementById('modal-editing-id');
+        
+        if (point) {
+            title.innerText = "✏️ 編輯景點資訊";
+            idInput.value = point.id;
+            document.getElementById('modal-name').value = point.name;
+            document.getElementById('modal-notes').value = point.notes;
+            document.getElementById('modal-lat').value = point.latlng.lat;
+            document.getElementById('modal-lng').value = point.latlng.lng;
+            document.getElementById('modal-transport').value = point.transport;
+        } else {
+            title.innerText = "📍 新增景點資訊";
+            idInput.value = "";
+            document.getElementById('modal-name').value = "";
+            document.getElementById('modal-notes').value = "";
+            document.getElementById('modal-lat').value = lat;
+            document.getElementById('modal-lng').value = lng;
+            document.getElementById('modal-transport').value = "walk";
+        }
         document.getElementById('add-modal').style.display = 'flex';
     }
 
     function closeAddModal() { document.getElementById('add-modal').style.display = 'none'; }
 
-    function confirmAddMarker() {
-        const name = document.getElementById('modal-name').value || "新景點";
+    function confirmMarkerAction() {
+        const id = document.getElementById('modal-editing-id').value;
+        const name = document.getElementById('modal-name').value || "未命名景點";
         const notes = document.getElementById('modal-notes').value || "";
         const lat = parseFloat(document.getElementById('modal-lat').value);
         const lng = parseFloat(document.getElementById('modal-lng').value);
         const transport = document.getElementById('modal-transport').value;
 
-        if (!isNaN(lat) && !isNaN(lng)) {
-            const id = Date.now();
-            const newPoint = { 
-                id: id, name: name, notes: notes, 
-                latlng: {lat: lat, lng: lng}, transport: transport, 
-                photo: null, photoPos: { lat: lat + 0.005, lng: lng + 0.005 } 
-            };
-            tripRef.child(currentDay).child(id).set(newPoint);
-            closeAddModal();
+        if (isNaN(lat) || isNaN(lng)) return alert("請填寫座標");
+
+        const targetId = id || Date.now();
+        const data = { 
+            id: parseInt(targetId), name, notes, 
+            latlng: {lat, lng}, transport 
+        };
+
+        // 如果是編輯，不覆蓋照片欄位
+        if (id) {
+            tripRef.child(currentDay).child(targetId).update(data);
+        } else {
+            data.photo = null;
+            data.photoPos = { lat: lat + 0.005, lng: lng + 0.005 };
+            tripRef.child(currentDay).child(targetId).set(data);
         }
+        closeAddModal();
     }
 
     function refreshUI() {
@@ -179,7 +201,6 @@
         localState.forEach((p, index) => {
             const displayId = index + 1;
             
-            // 地圖圖釘
             const customIcon = L.divIcon({ className: 'custom-div-icon', html: `<div class="custom-pin">${displayId}</div>`, iconSize: [32, 32], iconAnchor: [16, 16] });
             const m = L.marker(p.latlng, { icon: customIcon, draggable: true }).addTo(markerLayer);
             m.on('dragend', (e) => {
@@ -187,13 +208,11 @@
                 tripRef.child(currentDay).child(p.id).update({ latlng: { lat: pos.lat, lng: pos.lng } });
             });
 
-            // 畫線
             if (index > 0) {
                 const prev = localState[index - 1];
                 L.polyline([prev.latlng, p.latlng], { color: transportStyles[p.transport].color, dashArray: transportStyles[p.transport].dashArray, weight: 4 }).addTo(lineLayer);
             }
 
-            // 地圖上的照片標記
             if (p.photo) {
                 const photoIcon = L.divIcon({ className: 'photo-marker', html: `<div class="photo-badge">${displayId}</div><img src="${p.photo}" style="width:100%; height:100%; object-fit:cover;">`, iconSize: [60, 45] });
                 const pm = L.marker(p.photoPos || p.latlng, { icon: photoIcon, draggable: true }).addTo(photoLayer);
@@ -203,51 +222,35 @@
                 });
             }
 
-            // 側邊欄卡片
             const card = document.createElement('div'); card.className = 'marker-card';
-            
-            // 處理照片顯示邏輯
-            let photoSection = `<label>上傳照片</label><input type="file" accept="image/*" onchange="uploadPhoto(${p.id}, event)">`;
-            if (p.photo) {
-                photoSection = `
-                    <label>景點照片</label>
-                    <div class="sidebar-photo-container">
-                        <img src="${p.photo}" class="sidebar-photo">
-                        <button class="photo-del-btn" onclick="deletePhoto(${p.id})">✕ 刪除照片</button>
-                    </div>
-                `;
-            }
+            const photoSection = p.photo ? `
+                <div class="sidebar-photo-container">
+                    <img src="${p.photo}" class="sidebar-photo">
+                    <button class="photo-del-btn" onclick="deletePhoto(${p.id})">✕ 刪除</button>
+                </div>` : `<label>📷 上傳照片</label><input type="file" accept="image/*" onchange="uploadPhoto(${p.id}, event)">`;
 
             card.innerHTML = `
                 <div class="card-header">
-                    <input class="name-edit" value="${p.name}" onchange="updateName(${p.id}, this.value)">
-                    <span class="delete-icon" onclick="deletePoint(${p.id})">🗑️</span>
+                    <div class="card-title">${displayId}. ${p.name}</div>
+                    <div class="icon-group">
+                        <span class="action-icon edit-icon" onclick='openAddModal(${JSON.stringify(p)})'>✏️</span>
+                        <span class="action-icon delete-icon" onclick="deletePoint(${p.id})">🗑️</span>
+                    </div>
                 </div>
-                <textarea onchange="updateNotes(${p.id}, this.value)" placeholder="點擊輸入備註...">${p.notes || ""}</textarea>
+                <div style="font-size:0.9em; color:#666; margin-bottom:8px; line-height:1.4;">${p.notes || "無備註"}</div>
                 ${photoSection}
             `;
             listContainer.appendChild(card);
         });
     }
 
-    function updateName(id, val) { tripRef.child(currentDay).child(id).update({ name: val }); }
-    function updateNotes(id, val) { tripRef.child(currentDay).child(id).update({ notes: val }); }
     function deletePoint(id) { if(confirm("確定刪除此景點？")) tripRef.child(currentDay).child(id).remove(); }
-    
-    function deletePhoto(id) {
-        if(confirm("確定刪除這張照片嗎？")) {
-            tripRef.child(currentDay).child(id).update({ photo: null });
-        }
-    }
-
+    function deletePhoto(id) { if(confirm("確定刪除照片？")) tripRef.child(currentDay).child(id).update({ photo: null }); }
     function uploadPhoto(id, event) {
         const file = event.target.files[0];
         if (file) {
             const reader = new FileReader();
-            reader.onload = (e) => {
-                // 這裡可以考慮先對圖片做簡單縮放，Firebase Realtime DB 單個節點上限為 10MB
-                tripRef.child(currentDay).child(id).update({ photo: e.target.result });
-            };
+            reader.onload = (e) => tripRef.child(currentDay).child(id).update({ photo: e.target.result });
             reader.readAsDataURL(file);
         }
     }
