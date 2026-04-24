@@ -3,50 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>江南六天行</title>
+    <title>江南六天行 - 即時連線版</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; display: flex; height: 100vh; font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; overflow: hidden; }
-        #sidebar { width: 400px; background: #fff; padding: 20px; overflow-y: auto; box-shadow: 2px 0 12px rgba(0,0,0,0.15); z-index: 1000; box-sizing: border-box; }
+        #sidebar { width: 400px; background: #fff; padding: 20px; overflow-y: auto; box-shadow: 2px 0 12px rgba(0,0,0,0.15); z-index: 1000; box-sizing: border-box; position: relative; }
         #map { flex-grow: 1; height: 100%; z-index: 1; }
-        h2 { margin-top: 0; color: #1a73e8; border-bottom: 3px solid #1a73e8; padding-bottom: 10px; font-size: 1.4em; }
+        h2 { margin-top: 0; color: #1a73e8; border-bottom: 3px solid #1a73e8; padding-bottom: 10px; font-size: 1.4em; display: flex; justify-content: space-between; align-items: center; }
+        .online-status { font-size: 0.5em; background: #28a745; color: white; padding: 3px 8px; border-radius: 12px; }
+        
         .section { margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 10px; }
         label { display: block; font-weight: bold; margin-bottom: 8px; font-size: 0.9em; }
         select, input, textarea { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box; font-size: 16px; }
         textarea { height: 60px; resize: vertical; }
-        .coord-row { display: flex; gap: 10px; }
+        
         button { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-bottom: 5px; font-size: 16px; }
         button:hover { background: #1557b0; }
-        button.action-btn { background: #28a745; }
-        .marker-card { position: relative; background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 5px solid #1a73e8; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button.add-btn { background: #ff9800; font-size: 1.1em; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-top: 10px;}
+        button.add-btn:hover { background: #e68a00; transform: translateY(-2px); }
+        
+        .marker-card { position: relative; background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 5px solid #1a73e8; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: 0.2s;}
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .marker-card input.name-edit { font-weight: bold; font-size: 1.1em; border: none; border-bottom: 1px dashed #ccc; padding: 4px; width: 80%; margin-bottom: 0; }
         .delete-icon { color: #dc3545; cursor: pointer; font-size: 1.3em; transition: 0.2s; padding: 5px; }
+        
+        .custom-pin { background-color: #1a73e8; color: white; border-radius: 50%; width: 28px; height: 28px; text-align: center; line-height: 28px; font-weight: bold; font-size: 14px; border: 2px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.4); cursor: grab; }
         .photo-marker { border: 3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 4px; background: #fff; position: relative; }
         .photo-badge { position: absolute; top: -10px; right: -10px; background: #1a73e8; color: white; border-radius: 50%; width: 24px; height: 24px; text-align: center; line-height: 24px; font-size: 12px; font-weight: bold; border: 2px solid white; }
         .photo-img { width: 100%; height: 100%; object-fit: cover; border-radius: 2px; }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 350px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+        .btn-cancel { background: #6c757d; }
 
         @media (max-width: 768px) {
             body { flex-direction: column-reverse; }
             #sidebar { width: 100%; height: 50vh; padding: 15px; }
             #map { width: 100%; height: 50vh; }
-            .coord-row { flex-direction: column; gap: 0; }
         }
     </style>
 </head>
 <body>
 
 <div id="sidebar">
-    <h2>江南六天行</h2>
+    <h2>江南行 <span class="online-status">🟢 雲端同步中</span></h2>
     
-    <div class="section" style="background: #e8f0fe; border: 1px solid #c2d7fa;">
-        <label>💾 資料保存與讀取</label>
-        <button class="action-btn" onclick="exportItinerary()">下載行程檔 (.json)</button>
-        <button class="action-btn" onclick="document.getElementById('import-file').click()" style="background: #6c757d;">讀取行程檔</button>
-        <input type="file" id="import-file" style="display:none" onchange="importItinerary(event)" accept=".json">
-    </div>
-
-    <div class="section">
+    <div class="section" style="padding-bottom: 5px;">
         <label>第幾天行程</label>
         <select id="day-select">
             <option value="day1">第一天 (5/10)</option>
@@ -56,134 +59,179 @@
             <option value="day5">第五天 (5/14)</option>
             <option value="day6">第六天 (5/15)</option>
         </select>
+        <button class="add-btn" onclick="openAddModal()">➕ 新增景點</button>
     </div>
 
-    <div class="section">
-        <label>手動輸入座標 (經緯度)</label>
-        <div class="coord-row">
-            <input type="number" id="lat-input" placeholder="緯度" step="0.000001">
-            <input type="number" id="lng-input" placeholder="經度" step="0.000001">
-        </div>
-        <button onclick="addMarkerByCoords()">添加座標點</button>
+    <div id="marker-list">
+        <p style="text-align:center; color:#666;">載入資料庫中...</p>
     </div>
-
-    <div class="section">
-        <label>交通方式設定</label>
-        <select id="transport-select">
-            <option value="walk">🚶 步行 (綠虛線)</option>
-            <option value="transit">🚌 大眾運輸 (藍實線)</option>
-            <option value="taxi">🚕 打車 (紅實線)</option>
-        </select>
-    </div>
-
-    <div id="marker-list"></div>
 </div>
 
 <div id="map"></div>
 
+<div id="add-modal" class="modal-overlay">
+    <div class="modal-content">
+        <h3 style="margin-top:0;">📍 新增景點圖釘</h3>
+        <label>1. 前往此處的交通方式：</label>
+        <select id="modal-transport">
+            <option value="walk">🚶 步行 (綠虛線)</option>
+            <option value="transit">🚌 大眾運輸 (藍實線)</option>
+            <option value="taxi">🚕 打車 (紅實線)</option>
+        </select>
+        <label style="margin-top: 15px;">2. 座標位置：</label>
+        <input type="number" id="modal-lat" placeholder="緯度" step="0.000001">
+        <input type="number" id="modal-lng" placeholder="經度" step="0.000001">
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeAddModal()">取消</button>
+            <button onclick="confirmAddMarker()">確定新增</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
+    // 這裡已經為你填入專屬的 Firebase 設定！
+    const firebaseConfig = {
+        apiKey: "AIzaSyASaqpzdwA4e6TvBIzuTa50FZPb8pB0UMs",
+        authDomain: "shanghai-873b7.firebaseapp.com",
+        databaseURL: "https://shanghai-873b7-default-rtdb.firebaseio.com", 
+        projectId: "shanghai-873b7",
+        storageBucket: "shanghai-873b7.firebasestorage.app",
+        messagingSenderId: "423781847297",
+        appId: "1:423781847297:web:28dbd34a802e0cd93c0b00",
+        measurementId: "G-PL7PCQH8YQ"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const tripRef = db.ref('trips/jiangnan');
+
     const map = L.map('map').setView([31.23, 121.5], 11);
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png').addTo(map);
+    map.setMaxBounds([[31.05, 121.35], [31.40, 121.85]]);
 
-    const bounds = [[31.05, 121.35], [31.40, 121.85]];
-    map.setMaxBounds(bounds);
-
-    let state = { day1: [], day2: [], day3: [], day4: [], day5: [], day6: [] };
     const transportStyles = { walk: { color: '#28a745', dashArray: '5, 10' }, transit: { color: '#007bff', dashArray: '0' }, taxi: { color: '#dc3545', dashArray: '0' } };
-
     let currentDay = 'day1';
+    let localState = []; 
+    
     let lineLayer = L.layerGroup().addTo(map);
     let markerLayer = L.layerGroup().addTo(map);
     let photoLayer = L.layerGroup().addTo(map);
 
-    document.getElementById('day-select').addEventListener('change', (e) => {
-        currentDay = e.target.value;
-        refreshUI();
-    });
-
-    map.on('click', (e) => addNewPoint(e.latlng));
-
-    function addMarkerByCoords() {
-        const lat = parseFloat(document.getElementById('lat-input').value);
-        const lng = parseFloat(document.getElementById('lng-input').value);
-        if (!isNaN(lat) && !isNaN(lng)) { addNewPoint({ lat, lng }); }
+    function loadDayData() {
+        tripRef.off();
+        document.getElementById('marker-list').innerHTML = '<p style="text-align:center; color:#666;">同步中...</p>';
+        
+        tripRef.child(currentDay).on('value', (snapshot) => {
+            const data = snapshot.val();
+            localState = data ? Object.values(data).sort((a, b) => a.id - b.id) : [];
+            refreshUI();
+        });
     }
 
-    function addNewPoint(latlng) {
-        const transport = document.getElementById('transport-select').value;
-        const id = state[currentDay].length + 1;
-        state[currentDay].push({ 
-            id: Date.now(), displayId: id, name: `景點 ${id}`, notes: "", latlng: latlng, transport: transport, photo: null, photoPos: { lat: latlng.lat + 0.005, lng: latlng.lng + 0.005 } 
-        });
-        refreshUI();
+    document.getElementById('day-select').addEventListener('change', (e) => {
+        currentDay = e.target.value;
+        loadDayData();
+    });
+
+    loadDayData();
+
+    map.on('click', (e) => {
+        document.getElementById('modal-lat').value = e.latlng.lat.toFixed(6);
+        document.getElementById('modal-lng').value = e.latlng.lng.toFixed(6);
+        document.getElementById('add-modal').style.display = 'flex';
+    });
+
+    function openAddModal() {
+        document.getElementById('modal-lat').value = '';
+        document.getElementById('modal-lng').value = '';
+        document.getElementById('add-modal').style.display = 'flex';
+    }
+    function closeAddModal() { document.getElementById('add-modal').style.display = 'none'; }
+
+    function confirmAddMarker() {
+        const lat = parseFloat(document.getElementById('modal-lat').value);
+        const lng = parseFloat(document.getElementById('modal-lng').value);
+        const transport = document.getElementById('modal-transport').value;
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+            const id = Date.now();
+            const newPoint = { 
+                id: id, name: "新景點", notes: "", latlng: {lat: lat, lng: lng}, transport: transport, photo: null, photoPos: { lat: lat + 0.005, lng: lng + 0.005 } 
+            };
+            tripRef.child(currentDay).child(id).set(newPoint);
+            closeAddModal();
+        } else {
+            alert('請輸入有效的經緯度數字！');
+        }
     }
 
     function refreshUI() {
         lineLayer.clearLayers(); markerLayer.clearLayers(); photoLayer.clearLayers();
         const listContainer = document.getElementById('marker-list'); listContainer.innerHTML = '';
-        state[currentDay].forEach((p, index) => {
-            p.displayId = index + 1;
-            const m = L.circleMarker(p.latlng, { radius: 12, color: '#fff', fillColor: '#1a73e8', fillOpacity: 1, weight: 2 });
-            m.bindTooltip(`${p.displayId}: ${p.name}`, { permanent: true, direction: 'top' }).addTo(markerLayer);
+        
+        if (localState.length === 0) {
+            listContainer.innerHTML = '<p style="text-align:center; color:#999; margin-top:20px;">這天尚未安排行程</p>';
+            return;
+        }
+
+        localState.forEach((p, index) => {
+            const displayId = index + 1;
+            const customIcon = L.divIcon({ className: 'custom-div-icon', html: `<div class="custom-pin">${displayId}</div>`, iconSize: [32, 32], iconAnchor: [16, 16] });
+            const m = L.marker(p.latlng, { icon: customIcon, draggable: true }).addTo(markerLayer);
+            m.bindTooltip(p.name, { direction: 'top', offset: [0, -15] });
+
+            m.on('dragend', function(e) {
+                const newPos = e.target.getLatLng();
+                tripRef.child(currentDay).child(p.id).update({ latlng: { lat: newPos.lat, lng: newPos.lng } });
+            });
+
             if (index > 0) {
-                const prev = state[currentDay][index - 1];
+                const prev = localState[index - 1];
                 const style = transportStyles[p.transport];
                 L.polyline([prev.latlng, p.latlng], { color: style.color, dashArray: style.dashArray, weight: 4 }).addTo(lineLayer);
             }
             if (p.photo) {
-                const photoIcon = L.divIcon({ className: 'photo-marker', html: `<div class="photo-badge">${p.displayId}</div><img src="${p.photo}" class="photo-img">`, iconSize: [80, 60] });
+                const photoIcon = L.divIcon({ className: 'photo-marker', html: `<div class="photo-badge">${displayId}</div><img src="${p.photo}" class="photo-img">`, iconSize: [80, 60] });
                 const pm = L.marker(p.photoPos, { icon: photoIcon, draggable: true }).addTo(photoLayer);
-                pm.on('dragend', (e) => { p.photoPos = e.target.getLatLng(); });
+                pm.on('dragend', (e) => { 
+                    const pos = e.target.getLatLng();
+                    tripRef.child(currentDay).child(p.id).update({ photoPos: { lat: pos.lat, lng: pos.lng } });
+                });
             }
+
             const card = document.createElement('div'); card.className = 'marker-card';
             card.innerHTML = `
                 <div class="card-header">
                     <input class="name-edit" value="${p.name}" onchange="updateName(${p.id}, this.value)" placeholder="景點名稱">
                     <span class="delete-icon" onclick="deletePoint(${p.id})" title="刪除景點">🗑️</span>
                 </div>
-                <p style="font-size: 0.8em; color: #666; margin: -5px 0 10px 0;">📍 ${p.latlng.lat.toFixed(4)}, ${p.latlng.lng.toFixed(4)}</p>
+                <p style="font-size: 0.8em; color: #666; margin: -5px 0 10px 0;">📍 座標：${p.latlng.lat.toFixed(5)}, ${p.latlng.lng.toFixed(5)}</p>
                 <label style="font-size: 0.8em; margin-bottom: 4px;">行程備註：</label>
-                <textarea onchange="updateNotes(${p.id}, this.value)" placeholder="例如：必點松鼠鱖魚、需提前預約...">${p.notes || ""}</textarea>
-                <label style="font-size: 0.8em; margin-bottom: 4px;">景點照片：</label>
+                <textarea onchange="updateNotes(${p.id}, this.value)">${p.notes || ""}</textarea>
+                <label style="font-size: 0.8em; margin-bottom: 4px;">上傳預覽照 (建議小於 1MB)：</label>
                 <input type="file" accept="image/*" onchange="uploadPhoto(${p.id}, event)">
             `;
             listContainer.appendChild(card);
         });
     }
 
-    function updateName(id, newName) { const p = state[currentDay].find(x => x.id === id); if (p) p.name = newName; refreshUI(); }
-    function updateNotes(id, newNotes) { const p = state[currentDay].find(x => x.id === id); if (p) p.notes = newNotes; }
-    function deletePoint(id) { if(confirm("確定要刪除這個景點嗎？")) { state[currentDay] = state[currentDay].filter(x => x.id !== id); refreshUI(); } }
+    function updateName(id, newName) { tripRef.child(currentDay).child(id).update({ name: newName }); }
+    function updateNotes(id, newNotes) { tripRef.child(currentDay).child(id).update({ notes: newNotes }); }
+    function deletePoint(id) { if(confirm("確定要刪除嗎？")) { tripRef.child(currentDay).child(id).remove(); } }
+    
     function uploadPhoto(id, event) {
         const file = event.target.files[0];
         if (file) {
             const reader = new FileReader();
-            reader.onload = (e) => { const p = state[currentDay].find(x => x.id === id); if (p) p.photo = e.target.result; refreshUI(); };
+            reader.onload = (e) => { 
+                tripRef.child(currentDay).child(id).update({ photo: e.target.result }); 
+            };
             reader.readAsDataURL(file);
         }
-    }
-
-    function exportItinerary() {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
-        const downloadAnchorNode = document.createElement('a');
-        downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", "itinerary.json");
-        document.body.appendChild(downloadAnchorNode);
-        downloadAnchorNode.click();
-        downloadAnchorNode.remove();
-    }
-
-    function importItinerary(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            try { state = JSON.parse(e.target.result); refreshUI(); alert("行程讀取成功！"); } 
-            catch (error) { alert("檔案格式錯誤。"); }
-        };
-        reader.readAsText(file);
-        event.target.value = '';
     }
 </script>
 </body>
