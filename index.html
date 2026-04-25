@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>江南六天行 - 雲端編輯 V12</title>
+    <title>江南六天行 - 智慧搜尋 V13</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; display: flex; height: 100vh; font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; overflow: hidden; }
@@ -35,7 +35,11 @@
         .photo-marker { border: 3px solid white; box-shadow: 0 4px 10px rgba(0,0,0,0.3); border-radius: 4px; background: #fff; position: relative; }
 
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; }
-        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .modal-content { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto;}
+        
+        /* 搜尋結果選單樣式 */
+        .search-result-item { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 0.85em; color: #333; transition: background 0.2s; }
+        .search-result-item:hover { background: #e8f0fe; color: #1a73e8; }
 
         @media (max-width: 768px) {
             body { flex-direction: column-reverse; }
@@ -72,6 +76,15 @@
         <h3 id="modal-title" style="margin-top:0; color:#1a73e8;">📍 新增景點資訊</h3>
         <input type="hidden" id="modal-editing-id">
         
+        <label style="color:#d81b60;">🔍 搜尋景點 (自動填入座標與名稱)</label>
+        <div style="display:flex; gap:5px; margin-bottom: 5px;">
+            <input type="text" id="search-input" placeholder="例如：東方明珠、迪士尼" style="margin-bottom:0;">
+            <button onclick="searchPlace()" style="background:#d81b60; width:auto; padding:0 15px; margin-bottom:0;">搜尋</button>
+        </div>
+        <div id="search-results" style="margin-bottom: 15px; max-height: 120px; overflow-y: auto; background: #f9f9f9; border-radius: 4px;"></div>
+        
+        <hr style="border:0; border-top:1px dashed #ccc; margin-bottom:15px;">
+
         <label>景點名稱</label>
         <input type="text" id="modal-name">
 
@@ -82,18 +95,18 @@
             <option value="taxi">🚕 打車</option>
         </select>
 
-        <label>座標</label>
+        <label>座標 (可手動微調)</label>
         <div style="display:flex; gap:10px;">
-            <input type="number" id="modal-lat" step="0.000001">
-            <input type="number" id="modal-lng" step="0.000001">
+            <input type="number" id="modal-lat" step="0.000001" placeholder="緯度">
+            <input type="number" id="modal-lng" step="0.000001" placeholder="經度">
         </div>
 
         <label>行程備註</label>
-        <textarea id="modal-notes"></textarea>
+        <textarea id="modal-notes" placeholder="必吃美食或預約提醒..."></textarea>
 
         <div style="display:flex; gap:10px; margin-top:10px;">
             <button style="background:#6c757d" onclick="closeAddModal()">取消</button>
-            <button id="modal-confirm-btn" onclick="confirmMarkerAction()">確定</button>
+            <button id="modal-confirm-btn" onclick="confirmMarkerAction()">確定存檔</button>
         </div>
     </div>
 </div>
@@ -145,6 +158,10 @@
         const title = document.getElementById('modal-title');
         const idInput = document.getElementById('modal-editing-id');
         
+        // 清空之前的搜尋紀錄
+        document.getElementById('search-input').value = "";
+        document.getElementById('search-results').innerHTML = "";
+        
         if (point) {
             title.innerText = "✏️ 編輯景點資訊";
             idInput.value = point.id;
@@ -167,6 +184,60 @@
 
     function closeAddModal() { document.getElementById('add-modal').style.display = 'none'; }
 
+    // --- 新增：串接 OpenStreetMap 搜尋 API ---
+    async function searchPlace() {
+        const query = document.getElementById('search-input').value;
+        const resContainer = document.getElementById('search-results');
+        
+        if (!query) {
+            resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">請輸入關鍵字</span>';
+            return;
+        }
+        
+        resContainer.innerHTML = '<span style="color:#666; padding:5px; font-size:0.9em;">搜尋中...</span>';
+
+        try {
+            // 自動加上 "上海" 以提高該區域的準確度
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent('上海 ' + query)}&limit=5`;
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.length === 0) {
+                resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">找不到結果，請嘗試其他關鍵字。</span>';
+                return;
+            }
+
+            resContainer.innerHTML = '';
+            data.forEach(place => {
+                const item = document.createElement('div');
+                item.className = 'search-result-item';
+                // 顯示地名與大略地址
+                item.innerText = place.display_name;
+                
+                // 點擊後將資料自動填入下方的欄位
+                item.onclick = () => {
+                    document.getElementById('modal-lat').value = parseFloat(place.lat).toFixed(6);
+                    document.getElementById('modal-lng').value = parseFloat(place.lon).toFixed(6);
+                    
+                    // 如果名稱是空的，把使用者輸入的關鍵字或搜尋結果當作名稱
+                    if (!document.getElementById('modal-name').value) {
+                        // 嘗試抓取地標名稱，沒有就用 query
+                        const nameParts = place.display_name.split(',');
+                        document.getElementById('modal-name').value = nameParts[0] || query;
+                    }
+                    
+                    resContainer.innerHTML = '<span style="color:#28a745; padding:5px; font-size:0.9em; font-weight:bold;">✅ 座標與名稱已自動填入，可按確定存檔！</span>';
+                    
+                    // 偷偷把地圖移動過去，讓使用者預覽
+                    map.setView([place.lat, place.lon], 15);
+                };
+                resContainer.appendChild(item);
+            });
+        } catch (err) {
+            resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">搜尋發生錯誤，請稍後再試。</span>';
+        }
+    }
+
     function confirmMarkerAction() {
         const id = document.getElementById('modal-editing-id').value;
         const name = document.getElementById('modal-name').value || "未命名景點";
@@ -175,15 +246,11 @@
         const lng = parseFloat(document.getElementById('modal-lng').value);
         const transport = document.getElementById('modal-transport').value;
 
-        if (isNaN(lat) || isNaN(lng)) return alert("請填寫座標");
+        if (isNaN(lat) || isNaN(lng)) return alert("請填寫座標或使用搜尋功能填入座標");
 
         const targetId = id || Date.now();
-        const data = { 
-            id: parseInt(targetId), name, notes, 
-            latlng: {lat, lng}, transport 
-        };
+        const data = { id: parseInt(targetId), name, notes, latlng: {lat, lng}, transport };
 
-        // 如果是編輯，不覆蓋照片欄位
         if (id) {
             tripRef.child(currentDay).child(targetId).update(data);
         } else {
