@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>江南六天行 - 智慧搜尋 V13</title>
+    <title>江南六天行 - 自由排序 V14</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         body { margin: 0; display: flex; height: 100vh; font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; background-color: #f0f2f5; overflow: hidden; }
@@ -19,8 +19,15 @@
         button { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-bottom: 5px; }
         button:hover { background: #1557b0; }
         
-        .marker-card { position: relative; background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 5px solid #1a73e8; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        /* 景點卡片與拖曳把手 */
+        .marker-card { position: relative; background: white; padding: 15px; margin-bottom: 15px; border-radius: 8px; border-left: 5px solid #1a73e8; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: box-shadow 0.2s; }
+        /* 拖曳時的視覺效果 */
+        .marker-card.sortable-ghost { opacity: 0.4; box-shadow: 0 0 10px rgba(26,115,232,0.5); }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        
+        .drag-handle { color: #999; font-size: 1.4em; cursor: grab; padding: 0 10px 0 0; }
+        .drag-handle:active { cursor: grabbing; color: #1a73e8; }
+        
         .card-title { font-weight: bold; font-size: 1.1em; color: #333; }
         .icon-group { display: flex; gap: 8px; }
         .action-icon { cursor: pointer; font-size: 1.1em; padding: 5px; border-radius: 4px; transition: 0.2s; }
@@ -37,7 +44,6 @@
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; }
         .modal-content { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto;}
         
-        /* 搜尋結果選單樣式 */
         .search-result-item { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 0.85em; color: #333; transition: background 0.2s; }
         .search-result-item:hover { background: #e8f0fe; color: #1a73e8; }
 
@@ -95,7 +101,7 @@
             <option value="taxi">🚕 打車</option>
         </select>
 
-        <label>座標 (可手動微調)</label>
+        <label>座標</label>
         <div style="display:flex; gap:10px;">
             <input type="number" id="modal-lat" step="0.000001" placeholder="緯度">
             <input type="number" id="modal-lng" step="0.000001" placeholder="經度">
@@ -114,6 +120,7 @@
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
 <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
 <script>
     const firebaseConfig = {
@@ -141,10 +148,33 @@
     let markerLayer = L.layerGroup().addTo(map);
     let photoLayer = L.layerGroup().addTo(map);
 
+    // 🌟 啟動拖曳排序功能
+    const listElement = document.getElementById('marker-list');
+    Sortable.create(listElement, {
+        handle: '.drag-handle', // 限制只能透過 ☰ 符號拖曳，避免誤觸
+        animation: 150, // 動畫過渡時間
+        ghostClass: 'sortable-ghost',
+        onEnd: function (evt) {
+            // 拖曳結束時，取得卡片的新順序
+            const itemEls = listElement.querySelectorAll('.marker-card');
+            const updates = {};
+            
+            // 將畫面上看到的新順序 (index 0, 1, 2...) 寫入資料庫的 order 欄位
+            itemEls.forEach((card, index) => {
+                const id = card.getAttribute('data-id');
+                updates[`${id}/order`] = index;
+            });
+            
+            // 一次性發送更新給 Firebase
+            tripRef.child(currentDay).update(updates);
+        }
+    });
+
     function loadDayData() {
         tripRef.child(currentDay).on('value', (snapshot) => {
             const data = snapshot.val();
-            localState = data ? Object.values(data).sort((a, b) => a.id - b.id) : [];
+            // 🌟 排序邏輯優化：優先使用 order 欄位排序，沒有 order 的舊資料就用 id (時間戳) 排序
+            localState = data ? Object.values(data).sort((a, b) => (a.order ?? a.id) - (b.order ?? b.id)) : [];
             refreshUI();
         });
     }
@@ -158,7 +188,6 @@
         const title = document.getElementById('modal-title');
         const idInput = document.getElementById('modal-editing-id');
         
-        // 清空之前的搜尋紀錄
         document.getElementById('search-input').value = "";
         document.getElementById('search-results').innerHTML = "";
         
@@ -184,58 +213,37 @@
 
     function closeAddModal() { document.getElementById('add-modal').style.display = 'none'; }
 
-    // --- 新增：串接 OpenStreetMap 搜尋 API ---
     async function searchPlace() {
         const query = document.getElementById('search-input').value;
         const resContainer = document.getElementById('search-results');
-        
-        if (!query) {
-            resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">請輸入關鍵字</span>';
-            return;
-        }
-        
+        if (!query) return resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">請輸入關鍵字</span>';
         resContainer.innerHTML = '<span style="color:#666; padding:5px; font-size:0.9em;">搜尋中...</span>';
 
         try {
-            // 自動加上 "上海" 以提高該區域的準確度
             const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent('上海 ' + query)}&limit=5`;
             const response = await fetch(url);
             const data = await response.json();
 
-            if (data.length === 0) {
-                resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">找不到結果，請嘗試其他關鍵字。</span>';
-                return;
-            }
+            if (data.length === 0) return resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">找不到結果，請嘗試其他關鍵字。</span>';
 
             resContainer.innerHTML = '';
             data.forEach(place => {
                 const item = document.createElement('div');
                 item.className = 'search-result-item';
-                // 顯示地名與大略地址
                 item.innerText = place.display_name;
-                
-                // 點擊後將資料自動填入下方的欄位
                 item.onclick = () => {
                     document.getElementById('modal-lat').value = parseFloat(place.lat).toFixed(6);
                     document.getElementById('modal-lng').value = parseFloat(place.lon).toFixed(6);
-                    
-                    // 如果名稱是空的，把使用者輸入的關鍵字或搜尋結果當作名稱
                     if (!document.getElementById('modal-name').value) {
-                        // 嘗試抓取地標名稱，沒有就用 query
                         const nameParts = place.display_name.split(',');
                         document.getElementById('modal-name').value = nameParts[0] || query;
                     }
-                    
                     resContainer.innerHTML = '<span style="color:#28a745; padding:5px; font-size:0.9em; font-weight:bold;">✅ 座標與名稱已自動填入，可按確定存檔！</span>';
-                    
-                    // 偷偷把地圖移動過去，讓使用者預覽
                     map.setView([place.lat, place.lon], 15);
                 };
                 resContainer.appendChild(item);
             });
-        } catch (err) {
-            resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">搜尋發生錯誤，請稍後再試。</span>';
-        }
+        } catch (err) { resContainer.innerHTML = '<span style="color:red; padding:5px; font-size:0.9em;">搜尋發生錯誤。</span>'; }
     }
 
     function confirmMarkerAction() {
@@ -246,13 +254,14 @@
         const lng = parseFloat(document.getElementById('modal-lng').value);
         const transport = document.getElementById('modal-transport').value;
 
-        if (isNaN(lat) || isNaN(lng)) return alert("請填寫座標或使用搜尋功能填入座標");
+        if (isNaN(lat) || isNaN(lng)) return alert("請填寫座標或使用搜尋功能");
 
         const targetId = id || Date.now();
-        const data = { id: parseInt(targetId), name, notes, latlng: {lat, lng}, transport };
+        // 🌟 新增：設定 order 欄位。如果是新增，預設放在最後面 (用時間戳當 order 保證最大)
+        const data = { id: parseInt(targetId), order: parseInt(targetId), name, notes, latlng: {lat, lng}, transport };
 
         if (id) {
-            tripRef.child(currentDay).child(targetId).update(data);
+            tripRef.child(currentDay).child(targetId).update({ name, notes, latlng: {lat, lng}, transport }); // 編輯時不覆蓋原來的 order
         } else {
             data.photo = null;
             data.photoPos = { lat: lat + 0.005, lng: lng + 0.005 };
@@ -289,16 +298,23 @@
                 });
             }
 
-            const card = document.createElement('div'); card.className = 'marker-card';
+            const card = document.createElement('div'); 
+            card.className = 'marker-card';
+            // 🌟 新增：埋入 data-id 給排序庫辨識用
+            card.setAttribute('data-id', p.id); 
+            
             const photoSection = p.photo ? `
                 <div class="sidebar-photo-container">
                     <img src="${p.photo}" class="sidebar-photo">
                     <button class="photo-del-btn" onclick="deletePhoto(${p.id})">✕ 刪除</button>
-                </div>` : `<label>📷 上傳照片</label><input type="file" accept="image/*" onchange="uploadPhoto(${p.id}, event)">`;
+                </div>` : `<label style="margin-top:10px;">📷 上傳照片</label><input type="file" accept="image/*" onchange="uploadPhoto(${p.id}, event)">`;
 
             card.innerHTML = `
                 <div class="card-header">
-                    <div class="card-title">${displayId}. ${p.name}</div>
+                    <div style="display:flex; align-items:center;">
+                        <span class="drag-handle" title="按住拖曳">☰</span>
+                        <div class="card-title">${displayId}. ${p.name}</div>
+                    </div>
                     <div class="icon-group">
                         <span class="action-icon edit-icon" onclick='openAddModal(${JSON.stringify(p)})'>✏️</span>
                         <span class="action-icon delete-icon" onclick="deletePoint(${p.id})">🗑️</span>
